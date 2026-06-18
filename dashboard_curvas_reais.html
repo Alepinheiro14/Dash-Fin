@@ -1,0 +1,317 @@
+<!--
+  Dashboard Curvas de Juros Reais — Brasil / EUA / Zona do Euro
+  --------------------------------------------------------------
+  - 100% estático, vanilla JS, sem dependências: funciona offline (file://).
+  - 3 painéis independentes, cada um com escala Y própria (sem distorção).
+  - Carrega dados reais de window.DADOS (gerado por coletor_curvas.py -> dados.js);
+    sem dados.js, usa um conjunto de AMOSTRA para demonstração.
+-->
+<div id="app">
+  <header class="hdr">
+    <div>
+      <h1>Curvas de Juros <span class="accent">Reais</span></h1>
+      <p class="sub">Brasil (NTN-B IPCA+) · EUA (TIPS) · Zona do Euro (sintética) — escalas independentes</p>
+    </div>
+    <div class="badge" id="dataBadge">amostra</div>
+  </header>
+
+  <section class="controls">
+    <div class="ctl">
+      <label>Data de referência</label>
+      <select id="selDate"></select>
+    </div>
+    <div class="ctl">
+      <label>Comparar com</label>
+      <select id="selCompare">
+        <option value="none">— sem comparação —</option>
+        <option value="1m" selected>1 mês atrás</option>
+        <option value="3m">3 meses atrás</option>
+        <option value="6m">6 meses atrás</option>
+        <option value="1y">1 ano atrás</option>
+      </select>
+    </div>
+    <div class="ctl toggles">
+      <label>Regiões</label>
+      <div class="chips">
+        <button class="chip on" data-r="BR"><span class="dot" style="background:var(--br)"></span>Brasil</button>
+        <button class="chip on" data-r="US"><span class="dot" style="background:var(--us)"></span>EUA</button>
+        <button class="chip on" data-r="EU"><span class="dot" style="background:var(--eu)"></span>Euro</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panels" id="panels"></section>
+
+  <footer class="foot"><span id="footNote"></span></footer>
+</div>
+
+<div id="tooltip" class="tooltip"></div>
+
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#0e1420; --line:#1f2a3a;
+    --txt:#e6edf6; --muted:#8a98ad; --accent:#5eead4;
+    --br:#22c55e; --us:#3b82f6; --eu:#a855f7; --grid:#1b2536;
+  }
+  *{box-sizing:border-box}
+  #app{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--txt); background:var(--bg); padding:22px; min-height:100%; max-width:1080px; margin:0 auto;
+  }
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px}
+  h1{font-size:24px;margin:0;font-weight:680;letter-spacing:-.3px}
+  .accent{color:var(--accent)}
+  .sub{margin:4px 0 0;color:var(--muted);font-size:13px}
+  .badge{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:5px 10px;
+    border-radius:999px;background:#2a2010;color:#fbbf24;border:1px solid #5a420f;white-space:nowrap}
+  .badge.live{background:#0d2a1a;color:#34d399;border-color:#155f3e}
+
+  .controls{display:flex;flex-wrap:wrap;gap:14px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:14px 16px;margin-bottom:16px}
+  .ctl{display:flex;flex-direction:column;gap:6px}
+  .ctl label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+  select{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:9px;
+    padding:8px 10px;font-size:14px;min-width:160px;outline:none;cursor:pointer}
+  select:focus{border-color:var(--accent)}
+  .toggles{flex:1;min-width:240px}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{display:flex;align-items:center;gap:7px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);
+    border-radius:9px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+  .chip .dot{width:10px;height:10px;border-radius:50%;opacity:.35;transition:opacity .15s}
+  .chip.on{color:var(--txt);border-color:#33415a}
+  .chip.on .dot{opacity:1}
+  .chip:hover{border-color:#3a4a66}
+
+  .panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;position:relative}
+  .ptitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .ptitle .nm{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:660}
+  .ptitle .nm .dot{width:11px;height:11px;border-radius:50%}
+  .ptitle .hl{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .panel svg{width:100%;height:auto;display:block}
+  .pstats{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;padding-top:10px;border-top:1px solid var(--grid)}
+  .stat{display:flex;flex-direction:column;gap:1px;min-width:58px}
+  .stat .sl{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .stat .sv{font-size:13px;font-weight:660;font-variant-numeric:tabular-nums}
+  .delta{font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .up{color:#f87171}.down{color:#34d399}.flat{color:var(--muted)}
+
+  .tooltip{position:fixed;pointer-events:none;opacity:0;transform:translate(-50%,-118%);
+    background:#0a0e16;border:1px solid #33415a;border-radius:8px;padding:7px 10px;font-size:12px;
+    color:var(--txt);white-space:nowrap;transition:opacity .08s;box-shadow:0 6px 20px rgba(0,0,0,.45);z-index:50}
+  .tooltip b{color:var(--accent)}
+
+  .foot{margin-top:16px;color:var(--muted);font-size:12px;line-height:1.5}
+  code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:11.5px;color:var(--accent)}
+</style>
+
+<script src="dados.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- 1) DADOS DE AMOSTRA (substituídos por window.DADOS) ---------- */
+  function buildSample(){
+    var base={
+      BR:[[1,7.05],[2,7.10],[3,7.15],[5,7.20],[10,7.28],[15,7.32],[20,7.34],[30,7.30],[35,7.22]],
+      US:[[5,1.78],[7,1.92],[10,2.04],[20,2.42],[30,2.48]],
+      EU:[[2,0.12],[5,0.34],[10,0.62],[20,0.88],[30,0.93]]
+    };
+    var dates=["2025-06-16","2025-07-15","2025-08-15","2025-09-15","2025-10-15",
+               "2025-11-17","2025-12-15","2026-01-15","2026-02-16","2026-03-16",
+               "2026-04-15","2026-05-15","2026-06-18"];
+    function sd(i){var x=Math.sin(i*12.9898)*43758.5453;return x-Math.floor(x);}
+    var snaps={};
+    dates.forEach(function(d,idx){
+      var t=idx/(dates.length-1);
+      var drift={BR:-0.35*t+(sd(idx)-0.5)*0.08, US:0.06*t+(sd(idx+50)-0.5)*0.05, EU:0.22*t+(sd(idx+90)-0.5)*0.04};
+      var snap={};
+      ["BR","US","EU"].forEach(function(r){
+        snap[r]=base[r].map(function(pt,j){
+          var jit=(sd(idx*7+j+(r==="BR"?0:r==="US"?100:200))-0.5)*0.05;
+          return [pt[0], +(pt[1]+drift[r]+jit).toFixed(3)];
+        });
+      });
+      snaps[d]=snap;
+    });
+    return {meta:{source:"amostra"}, snapshots:snaps};
+  }
+
+  var DADOS=(window.DADOS&&window.DADOS.snapshots)?window.DADOS:buildSample();
+  var isLive=!!(window.DADOS&&window.DADOS.snapshots);
+
+  /* ---------- 2) ESTADO + HELPERS ---------- */
+  var REGIONS=["BR","US","EU"];
+  var NAMES={BR:"Brasil · NTN-B", US:"EUA · TIPS", EU:"Euro · sintética"};
+  function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+  var COLORS={BR:css("--br"),US:css("--us"),EU:css("--eu")};
+
+  var allDates=Object.keys(DADOS.snapshots).sort();
+  var state={date:allDates[allDates.length-1], compare:"1m", visible:{BR:true,US:true,EU:true}};
+
+  function monthsBack(iso,m){var d=new Date(iso+"T00:00:00");d.setMonth(d.getMonth()-m);return d;}
+  function nearestOnOrBefore(target){
+    var tt=target.getTime(),best=null;
+    allDates.forEach(function(d){var dt=new Date(d+"T00:00:00").getTime();
+      if(dt<=tt&&(best===null||dt>new Date(best+"T00:00:00").getTime()))best=d;});
+    return best;
+  }
+  function compareDate(){
+    if(state.compare==="none")return null;
+    var m={"1m":1,"3m":3,"6m":6,"1y":12}[state.compare];
+    var nd=nearestOnOrBefore(monthsBack(state.date,m));
+    return (nd&&nd!==state.date)?nd:null;
+  }
+  function rateAt(curve,mat){
+    if(!curve||!curve.length)return null;
+    for(var i=0;i<curve.length;i++)if(curve[i][0]===mat)return curve[i][1];
+    if(mat<=curve[0][0])return curve[0][1];
+    if(mat>=curve[curve.length-1][0])return curve[curve.length-1][1];
+    for(var j=0;j<curve.length-1;j++){var a=curve[j],b=curve[j+1];
+      if(mat>=a[0]&&mat<=b[0]){var f=(mat-a[0])/(b[0]-a[0]);return a[1]+f*(b[1]-a[1]);}}
+    return null;
+  }
+  function fmtBp(x){return (x>=0?"+":"")+(x*100).toFixed(0)+" bp";}
+  function fmtDate(iso){var p=iso.split("-");var mm=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+    return p[2]+"/"+mm[+p[1]-1]+"/"+p[0];}
+
+  /* ---------- 3) DESENHO DE UM PAINEL (escala Y própria) ---------- */
+  var W=320,H=230,M={l:40,r:12,t:12,b:30};
+  var plotW=W-M.l-M.r, plotH=H-M.t-M.b;
+  var tip=document.getElementById("tooltip");
+
+  function el(tag,a){var e=document.createElementNS("http://www.w3.org/2000/svg",tag);for(var k in a)e.setAttribute(k,a[k]);return e;}
+
+  function panelBounds(region,snap,snapCmp){
+    var lo=Infinity,hi=-Infinity,maxMat=0;
+    function scan(s){if(!s||!s[region])return;s[region].forEach(function(p){
+      if(p[1]<lo)lo=p[1];if(p[1]>hi)hi=p[1];if(p[0]>maxMat)maxMat=p[0];});}
+    scan(snap);scan(snapCmp);
+    if(lo===Infinity){lo=0;hi=1;}
+    var pad=Math.max(0.12,(hi-lo)*0.18);
+    return {lo:lo-pad, hi:hi+pad, maxMat:Math.ceil(maxMat/5)*5};
+  }
+  function makePanel(region){
+    var snap=DADOS.snapshots[state.date], cmp=compareDate(), snapCmp=cmp?DADOS.snapshots[cmp]:null;
+    var b=panelBounds(region,snap,snapCmp);
+    var X=function(m){return M.l+(m/b.maxMat)*plotW;};
+    var Y=function(r){return M.t+plotH-((r-b.lo)/(b.hi-b.lo))*plotH;};
+
+    var svg=el("svg",{viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet"});
+
+    // grid + eixo Y (4 ticks)
+    for(var i=0;i<=4;i++){
+      var val=b.lo+(b.hi-b.lo)*i/4, y=Y(val);
+      svg.appendChild(el("line",{x1:M.l,y1:y,x2:W-M.r,y2:y,stroke:css("--grid"),"stroke-width":1}));
+      var t=el("text",{x:M.l-6,y:y+3.5,"text-anchor":"end",fill:css("--muted"),"font-size":10});
+      t.textContent=val.toFixed(2)+"%"; svg.appendChild(t);
+    }
+    // eixo X
+    var xt=[0]; var step=b.maxMat<=10?2:(b.maxMat<=20?5:10);
+    for(var v=step; v<=b.maxMat; v+=step) xt.push(v);
+    xt.forEach(function(v){
+      var x=X(v);
+      if(v>0)svg.appendChild(el("line",{x1:x,y1:M.t,x2:x,y2:M.t+plotH,stroke:css("--grid"),"stroke-width":.5,opacity:.55}));
+      var t=el("text",{x:x,y:M.t+plotH+18,"text-anchor":"middle",fill:css("--muted"),"font-size":10});
+      t.textContent=v+"a"; svg.appendChild(t);
+    });
+
+    // curva de comparação (tracejada)
+    if(snapCmp&&snapCmp[region]) drawCurve(svg,snapCmp[region],COLORS[region],X,Y,true);
+    // curva atual (sólida) + pontos
+    if(snap[region]){
+      drawCurve(svg,snap[region],COLORS[region],X,Y,false);
+      snap[region].forEach(function(p){
+        var cx=X(p[0]),cy=Y(p[1]);
+        var c=el("circle",{cx:cx,cy:cy,r:3.6,fill:css("--bg"),stroke:COLORS[region],"stroke-width":2,style:"cursor:pointer"});
+        c.addEventListener("mouseenter",function(ev){
+          var cr=snapCmp?rateAt(snapCmp[region],p[0]):null;
+          var html="<b>"+NAMES[region]+"</b><br>"+p[0]+"a: "+p[1].toFixed(2)+"%";
+          if(cr!=null){var dl=p[1]-cr,cls=dl>0.001?"up":dl<-0.001?"down":"flat";
+            html+=' <span class="delta '+cls+'">'+fmtBp(dl)+"</span>";}
+          tip.innerHTML=html;
+          tip.style.left=ev.clientX+"px"; tip.style.top=ev.clientY+"px"; tip.style.opacity=1;
+        });
+        c.addEventListener("mousemove",function(ev){tip.style.left=ev.clientX+"px";tip.style.top=ev.clientY+"px";});
+        c.addEventListener("mouseleave",function(){tip.style.opacity=0;});
+        svg.appendChild(c);
+      });
+    }
+    return svg;
+  }
+  function drawCurve(svg,curve,color,X,Y,dashed){
+    var d=curve.map(function(p,i){return (i?"L":"M")+X(p[0]).toFixed(1)+" "+Y(p[1]).toFixed(1);}).join(" ");
+    var path=el("path",{d:d,fill:"none",stroke:color,"stroke-width":dashed?1.8:2.4,"stroke-linejoin":"round","stroke-linecap":"round"});
+    if(dashed){path.setAttribute("stroke-dasharray","5 4");path.setAttribute("opacity",".6");}
+    svg.appendChild(path);
+  }
+
+  /* ---------- 4) MÉTRICAS COMPACTAS POR PAINEL ---------- */
+  function statHtml(label,val,delta){
+    var dh="";
+    if(delta!=null){var cls=delta>0.001?"up":delta<-0.001?"down":"flat";
+      dh='<span class="delta '+cls+'">'+fmtBp(delta)+"</span>";}
+    return '<div class="stat"><span class="sl">'+label+'</span><span class="sv">'+
+           (val==null?"—":val.toFixed(2)+"%")+'</span>'+(dh?'<span class="delta '+
+           (delta>0.001?"up":delta<-0.001?"down":"flat")+'">'+fmtBp(delta)+'</span>':'')+'</div>';
+  }
+  function panelStats(region){
+    var snap=DADOS.snapshots[state.date], cmp=compareDate(), snapCmp=cmp?DADOS.snapshots[cmp]:null;
+    var cur=snap[region], cmpc=snapCmp?snapCmp[region]:null;
+    var short=cur[0], long=cur[cur.length-1];
+    var r10=rateAt(cur,10), r2=rateAt(cur,2)||short[1];
+    var slope=(r10!=null)?(r10-r2):null;
+    function dl(mat,v){if(!cmpc)return null;var c=rateAt(cmpc,mat);return c!=null?v-c:null;}
+    var h="";
+    h+=statHtml(short[0]+"a", short[1], dl(short[0],short[1]));
+    if(r10!=null) h+=statHtml("10a", r10, dl(10,r10));
+    h+=statHtml(long[0]+"a", long[1], dl(long[0],long[1]));
+    if(slope!=null) h+='<div class="stat"><span class="sl">10−2a</span><span class="sv">'+
+      ((slope>=0?"+":"")+(slope*100).toFixed(0)+"bp")+'</span></div>';
+    return h;
+  }
+
+  /* ---------- 5) RENDER ---------- */
+  function render(){
+    var box=document.getElementById("panels"); box.innerHTML="";
+    var cmp=compareDate();
+    var snap=DADOS.snapshots[state.date];
+    REGIONS.forEach(function(r){
+      if(!state.visible[r])return;
+      var card=document.createElement("div"); card.className="panel";
+      var r10=rateAt(snap[r],10);
+      card.innerHTML='<div class="ptitle"><span class="nm"><span class="dot" style="background:'+
+        COLORS[r]+'"></span>'+NAMES[r]+'</span><span class="hl">10a real: '+
+        (r10!=null?r10.toFixed(2)+"%":"—")+'</span></div>';
+      card.appendChild(makePanel(r));
+      var st=document.createElement("div"); st.className="pstats"; st.innerHTML=panelStats(r);
+      card.appendChild(st);
+      box.appendChild(card);
+    });
+
+    document.getElementById("footNote").innerHTML=
+      (isLive?"Dados reais via <code>coletor_curvas.py</code>. ":
+       "Dados de <b>amostra</b> — rode <code>python coletor_curvas.py</code> p/ gerar <code>dados.js</code>. ")+
+      "Cada painel tem <b>escala Y própria</b>. Euro = curva real sintética (nominal BCE − breakeven). "+
+      (cmp?("Sólido = "+fmtDate(state.date)+", tracejado = "+fmtDate(cmp)+"."):"Sem data de comparação.");
+    var badge=document.getElementById("dataBadge");
+    badge.textContent=isLive?"dados reais":"amostra"; badge.classList.toggle("live",isLive);
+  }
+
+  /* ---------- 6) CONTROLES ---------- */
+  (function fillDates(){
+    var sel=document.getElementById("selDate"); sel.innerHTML="";
+    allDates.slice().reverse().forEach(function(d){
+      var o=document.createElement("option");o.value=d;o.textContent=fmtDate(d);
+      if(d===state.date)o.selected=true;sel.appendChild(o);});
+  })();
+  document.getElementById("selDate").addEventListener("change",function(e){state.date=e.target.value;render();});
+  document.getElementById("selCompare").addEventListener("change",function(e){state.compare=e.target.value;render();});
+  document.querySelectorAll(".chip").forEach(function(c){
+    c.addEventListener("click",function(){var r=c.getAttribute("data-r");
+      state.visible[r]=!state.visible[r];c.classList.toggle("on",state.visible[r]);render();});
+  });
+
+  render();
+})();
+</script>
