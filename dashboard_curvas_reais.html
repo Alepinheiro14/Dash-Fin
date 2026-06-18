@@ -1,12 +1,21 @@
 <!--
-  Dashboard Curvas de Juros Reais — Brasil / EUA / Zona do Euro
-  --------------------------------------------------------------
-  - 100% estático, vanilla JS, sem dependências: funciona offline (file://).
-  - 3 painéis independentes, cada um com escala Y própria (sem distorção).
-  - Carrega dados reais de window.DADOS (gerado por coletor_curvas.py -> dados.js);
-    sem dados.js, usa um conjunto de AMOSTRA para demonstração.
+  Dashboard — Curvas de Juros Reais + Monitor de Mercado
+  -------------------------------------------------------
+  - 100% estático, vanilla JS, funciona offline (file://).
+  - Aba "Juros Reais": 3 painéis, escala Y independente.
+  - Aba "Mercado": índices de bolsa (Ibovespa, S&P 500, Nasdaq, DAX, Stoxx50)
+    e câmbio (USD/BRL PTAX, EUR/BRL) com sparkline e variações 1D / 1M / 3M.
+  - Carrega window.DADOS (dados.js) e window.DADOS_MERCADO (dados_mercado.js).
 -->
-<div id="app">
+<script src="dados.js"></script>
+<script src="dados_mercado.js"></script>
+
+<nav class="tabs-nav">
+  <button class="tab-btn active" data-tab="juros">Juros Reais</button>
+  <button class="tab-btn" data-tab="mercado">Mercado</button>
+</nav>
+
+<div id="app" class="tab-pane">
   <header class="hdr">
     <div>
       <h1>Curvas de Juros <span class="accent">Reais</span></h1>
@@ -45,6 +54,41 @@
   <footer class="foot"><span id="footNote"></span></footer>
 </div>
 
+<div id="app-mercado" class="tab-pane" style="display:none">
+  <header class="hdr">
+    <div>
+      <h1>Monitor de <span class="accent">Mercado</span></h1>
+      <p class="sub">Índices de bolsa e câmbio — fechamento diário</p>
+    </div>
+    <div class="badge" id="mktBadge">carregando</div>
+  </header>
+
+  <section class="controls">
+    <div class="ctl toggles">
+      <label>Filtrar</label>
+      <div class="chips" id="mktChips">
+        <button class="chip on" data-mf="BR"><span class="dot" style="background:var(--br)"></span>Brasil</button>
+        <button class="chip on" data-mf="US"><span class="dot" style="background:var(--us)"></span>EUA</button>
+        <button class="chip on" data-mf="EU"><span class="dot" style="background:var(--eu)"></span>Euro</button>
+        <button class="chip on" data-mf="FX"><span class="dot" style="background:var(--accent)"></span>Câmbio</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <label>Janela sparkline</label>
+      <select id="mktWindow">
+        <option value="30">30 dias</option>
+        <option value="60">60 dias</option>
+        <option value="90" selected>90 dias</option>
+        <option value="180">180 dias</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="mkt-grid" id="mktGrid"></section>
+
+  <footer class="foot"><span id="mktFoot"></span></footer>
+</div>
+
 <div id="tooltip" class="tooltip"></div>
 
 <style>
@@ -54,7 +98,8 @@
     --br:#22c55e; --us:#3b82f6; --eu:#a855f7; --grid:#1b2536;
   }
   *{box-sizing:border-box}
-  #app{
+  body{margin:0;background:var(--bg)}
+  #app, #app-mercado{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     color:var(--txt); background:var(--bg); padding:22px; min-height:100%; max-width:1080px; margin:0 auto;
   }
@@ -82,6 +127,7 @@
   .chip.on .dot{opacity:1}
   .chip:hover{border-color:#3a4a66}
 
+  /* Juros panels */
   .panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;position:relative}
   .ptitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
@@ -103,9 +149,41 @@
 
   .foot{margin-top:16px;color:var(--muted);font-size:12px;line-height:1.5}
   code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:11.5px;color:var(--accent)}
+
+  /* Tabs */
+  .tabs-nav{
+    display:flex;gap:2px;background:var(--bg);padding:14px 22px 0;
+    max-width:1080px;margin:0 auto;border-bottom:1px solid var(--line);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .tab-btn{
+    background:none;border:none;border-bottom:2px solid transparent;
+    color:var(--muted);font-size:14px;font-weight:600;padding:10px 18px 9px;cursor:pointer;
+    transition:color .15s,border-color .15s;
+  }
+  .tab-btn:hover{color:var(--txt)}
+  .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+  /* Mercado cards */
+  .mkt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;margin-bottom:16px}
+  .mkt-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px 14px 10px;display:flex;flex-direction:column;gap:8px;
+  }
+  .mkt-card-head{display:flex;align-items:center;gap:8px}
+  .mkt-card-head .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .mkt-card-name{font-size:13px;font-weight:660;color:var(--txt);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mkt-card-reg{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .mkt-val{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--txt);line-height:1}
+  .mkt-unit{font-size:11px;color:var(--muted);font-weight:400;margin-left:4px}
+  .mkt-ref{font-size:10px;color:var(--muted);margin-top:1px}
+  .mkt-changes{display:flex;gap:10px;flex-wrap:wrap}
+  .mkt-chg{display:flex;flex-direction:column;gap:1px}
+  .mkt-chg .cl{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  .mkt-chg .cv{font-size:12px;font-weight:660;font-variant-numeric:tabular-nums}
+  .mkt-spark{width:100%;height:48px;display:block;margin-top:4px}
 </style>
 
-<script src="dados.js"></script>
 <script>
 (function(){
   "use strict";
@@ -175,7 +253,7 @@
   function fmtDate(iso){var p=iso.split("-");var mm=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
     return p[2]+"/"+mm[+p[1]-1]+"/"+p[0];}
 
-  /* ---------- 3) DESENHO DE UM PAINEL (escala Y própria) ---------- */
+  /* ---------- 3) DESENHO DE UM PAINEL ---------- */
   var W=320,H=230,M={l:40,r:12,t:12,b:30};
   var plotW=W-M.l-M.r, plotH=H-M.t-M.b;
   var tip=document.getElementById("tooltip");
@@ -199,14 +277,12 @@
 
     var svg=el("svg",{viewBox:"0 0 "+W+" "+H,preserveAspectRatio:"xMidYMid meet"});
 
-    // grid + eixo Y (4 ticks)
     for(var i=0;i<=4;i++){
       var val=b.lo+(b.hi-b.lo)*i/4, y=Y(val);
       svg.appendChild(el("line",{x1:M.l,y1:y,x2:W-M.r,y2:y,stroke:css("--grid"),"stroke-width":1}));
       var t=el("text",{x:M.l-6,y:y+3.5,"text-anchor":"end",fill:css("--muted"),"font-size":10});
       t.textContent=val.toFixed(2)+"%"; svg.appendChild(t);
     }
-    // eixo X
     var xt=[0]; var step=b.maxMat<=10?2:(b.maxMat<=20?5:10);
     for(var v=step; v<=b.maxMat; v+=step) xt.push(v);
     xt.forEach(function(v){
@@ -216,9 +292,7 @@
       t.textContent=v+"a"; svg.appendChild(t);
     });
 
-    // curva de comparação (tracejada)
     if(snapCmp&&snapCmp[region]) drawCurve(svg,snapCmp[region],COLORS[region],X,Y,true);
-    // curva atual (sólida) + pontos
     if(snap[region]){
       drawCurve(svg,snap[region],COLORS[region],X,Y,false);
       snap[region].forEach(function(p){
@@ -246,13 +320,13 @@
     svg.appendChild(path);
   }
 
-  /* ---------- 4) MÉTRICAS COMPACTAS POR PAINEL ---------- */
+  /* ---------- 4) ESTATÍSTICAS ---------- */
   function statHtml(label,val,delta){
     var dh="";
     if(delta!=null){var cls=delta>0.001?"up":delta<-0.001?"down":"flat";
       dh='<span class="delta '+cls+'">'+fmtBp(delta)+"</span>";}
     return '<div class="stat"><span class="sl">'+label+'</span><span class="sv">'+
-           (val==null?"—":val.toFixed(2)+"%")+'</span>'+(dh?'<span class="delta '+
+           (val==null?"&mdash;":val.toFixed(2)+"%")+'</span>'+(dh?'<span class="delta '+
            (delta>0.001?"up":delta<-0.001?"down":"flat")+'">'+fmtBp(delta)+'</span>':'')+'</div>';
   }
   function panelStats(region){
@@ -271,7 +345,7 @@
     return h;
   }
 
-  /* ---------- 5) RENDER ---------- */
+  /* ---------- 5) RENDER JUROS ---------- */
   function render(){
     var box=document.getElementById("panels"); box.innerHTML="";
     var cmp=compareDate();
@@ -282,7 +356,7 @@
       var r10=rateAt(snap[r],10);
       card.innerHTML='<div class="ptitle"><span class="nm"><span class="dot" style="background:'+
         COLORS[r]+'"></span>'+NAMES[r]+'</span><span class="hl">10a real: '+
-        (r10!=null?r10.toFixed(2)+"%":"—")+'</span></div>';
+        (r10!=null?r10.toFixed(2)+"%":"&mdash;")+'</span></div>';
       card.appendChild(makePanel(r));
       var st=document.createElement("div"); st.className="pstats"; st.innerHTML=panelStats(r);
       card.appendChild(st);
@@ -291,14 +365,14 @@
 
     document.getElementById("footNote").innerHTML=
       (isLive?"Dados reais via <code>coletor_curvas.py</code>. ":
-       "Dados de <b>amostra</b> — rode <code>python coletor_curvas.py</code> p/ gerar <code>dados.js</code>. ")+
-      "Cada painel tem <b>escala Y própria</b>. Euro = curva real sintética (nominal BCE − breakeven). "+
+       "Dados de <b>amostra</b> &mdash; rode <code>python coletor_curvas.py</code> p/ gerar <code>dados.js</code>. ")+
+      "Cada painel tem <b>escala Y própria</b>. Euro = curva real sintética (nominal BCE &minus; breakeven). "+
       (cmp?("Sólido = "+fmtDate(state.date)+", tracejado = "+fmtDate(cmp)+"."):"Sem data de comparação.");
     var badge=document.getElementById("dataBadge");
     badge.textContent=isLive?"dados reais":"amostra"; badge.classList.toggle("live",isLive);
   }
 
-  /* ---------- 6) CONTROLES ---------- */
+  /* ---------- 6) CONTROLES JUROS ---------- */
   (function fillDates(){
     var sel=document.getElementById("selDate"); sel.innerHTML="";
     allDates.slice().reverse().forEach(function(d){
@@ -307,11 +381,157 @@
   })();
   document.getElementById("selDate").addEventListener("change",function(e){state.date=e.target.value;render();});
   document.getElementById("selCompare").addEventListener("change",function(e){state.compare=e.target.value;render();});
-  document.querySelectorAll(".chip").forEach(function(c){
+  document.querySelectorAll(".chip[data-r]").forEach(function(c){
     c.addEventListener("click",function(){var r=c.getAttribute("data-r");
       state.visible[r]=!state.visible[r];c.classList.toggle("on",state.visible[r]);render();});
   });
 
   render();
+})();
+</script>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---- Navegação entre abas ---- */
+  document.querySelectorAll(".tab-btn").forEach(function(btn){
+    btn.addEventListener("click",function(){
+      document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.remove("active");});
+      btn.classList.add("active");
+      var tab=btn.getAttribute("data-tab");
+      document.getElementById("app").style.display=(tab==="juros")?"":"none";
+      document.getElementById("app-mercado").style.display=(tab==="mercado")?"":"none";
+    });
+  });
+
+  /* ---- Mercado ---- */
+  if(!window.DADOS_MERCADO||!window.DADOS_MERCADO.series){
+    document.getElementById("mktGrid").innerHTML=
+      '<p style="color:var(--muted);padding:20px 0">Arquivo <code>dados_mercado.js</code> não encontrado. '+
+      'Execute <code>python coletor_mercado.py</code> para gerar.</p>';
+    document.getElementById("mktBadge").textContent="sem dados";
+    return;
+  }
+
+  var SER=window.DADOS_MERCADO.series;
+  var RCOL={BR:"--br",US:"--us",EU:"--eu",FX:"--accent"};
+  var mktVis={BR:true,US:true,EU:true,FX:true};
+  var mktWin=90;
+
+  function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+
+  function fmtVal(codigo,v){
+    if(codigo==="IBOV") return Math.round(v).toLocaleString("pt-BR");
+    if(codigo==="USDBRL"||codigo==="EURBRL") return v.toFixed(4);
+    return v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
+  function fmtPct(v){
+    if(v==null) return '<span class="flat">&mdash;</span>';
+    var cls=v>0.05?"up":v<-0.05?"down":"flat";
+    return '<span class="'+cls+'">'+(v>0?"+":"")+v.toFixed(2)+'%</span>';
+  }
+
+  function serieWindow(serie,days){
+    var cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-days);
+    var cutStr=cutoff.toISOString().slice(0,10);
+    var filtered=serie.filter(function(p){return p[0]>=cutStr;});
+    return filtered.length>=2?filtered:serie.slice(-Math.max(days,2));
+  }
+
+  function makeSpark(pts){
+    if(!pts||pts.length<2) return "";
+    var vals=pts.map(function(p){return p[1];});
+    var lo=Math.min.apply(null,vals), hi=Math.max.apply(null,vals);
+    var rng=hi-lo||lo*0.001||1;
+    var W=200,H=46,pad=3;
+    var xS=function(i){return pad+(i/(pts.length-1))*(W-pad*2);};
+    var yS=function(v){return H-pad-((v-lo)/rng)*(H-pad*2);};
+    var d=pts.map(function(p,i){return(i?"L":"M")+xS(i).toFixed(1)+" "+yS(p[1]).toFixed(1);}).join(" ");
+    var trend=vals[vals.length-1]>=vals[0];
+    var lineColor=trend?css("--br"):css("--us");
+    return '<svg viewBox="0 0 '+W+' '+H+'" class="mkt-spark" preserveAspectRatio="none">'+
+      '<path d="'+d+'" fill="none" stroke="'+lineColor+'" stroke-width="1.8" '+
+      'stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+
+  function chgPct(serie,daysBack){
+    if(!serie||serie.length<2) return null;
+    var last=serie[serie.length-1][1];
+    var cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-daysBack);
+    var cutStr=cutoff.toISOString().slice(0,10);
+    var prev=null;
+    for(var i=serie.length-2;i>=0;i--){
+      if(serie[i][0]<=cutStr){prev=serie[i][1];break;}
+    }
+    if(prev==null||prev===0) return null;
+    return (last-prev)/Math.abs(prev)*100;
+  }
+
+  function renderMkt(){
+    var grid=document.getElementById("mktGrid");
+    grid.innerHTML="";
+    var keys=Object.keys(SER);
+    var order={BR:0,US:1,EU:2,FX:3};
+    keys.sort(function(a,b){
+      return (order[SER[a].regiao]||9)-(order[SER[b].regiao]||9);
+    });
+
+    keys.forEach(function(cod){
+      var s=SER[cod];
+      if(!mktVis[s.regiao]) return;
+
+      var winPts=serieWindow(s.serie,mktWin);
+      var last=s.serie[s.serie.length-1];
+      var valStr=fmtVal(cod,last[1]);
+      var unit=(cod==="USDBRL"||cod==="EURBRL")?"R$":(cod==="IBOV")?"pts":s.moeda;
+      var d1=chgPct(s.serie,1), d1m=chgPct(s.serie,30), d3m=chgPct(s.serie,90);
+      var dotColor=css(RCOL[s.regiao]||"--accent");
+
+      var card=document.createElement("div");
+      card.className="mkt-card";
+      card.innerHTML=
+        '<div class="mkt-card-head">'+
+          '<span class="dot" style="background:'+dotColor+'"></span>'+
+          '<span class="mkt-card-name">'+s.nome+'</span>'+
+          '<span class="mkt-card-reg">'+s.regiao+'</span>'+
+        '</div>'+
+        '<div><span class="mkt-val">'+valStr+'</span><span class="mkt-unit">'+unit+'</span></div>'+
+        '<div class="mkt-ref">'+last[0]+'</div>'+
+        '<div class="mkt-changes">'+
+          '<div class="mkt-chg"><span class="cl">1D</span><span class="cv">'+fmtPct(d1)+'</span></div>'+
+          '<div class="mkt-chg"><span class="cl">1M</span><span class="cv">'+fmtPct(d1m)+'</span></div>'+
+          '<div class="mkt-chg"><span class="cl">3M</span><span class="cv">'+fmtPct(d3m)+'</span></div>'+
+        '</div>'+
+        makeSpark(winPts);
+      grid.appendChild(card);
+    });
+
+    var generated=(window.DADOS_MERCADO.meta&&window.DADOS_MERCADO.meta.generated||"").slice(0,10);
+    document.getElementById("mktBadge").textContent="dados reais";
+    document.getElementById("mktBadge").classList.add("live");
+    document.getElementById("mktFoot").innerHTML=
+      'Fonte: yfinance (índices + EUR/BRL) &middot; BCB PTAX (USD/BRL). '+
+      'Gerado em <code>'+generated+'</code>. '+
+      'Sparkline: últimos <b>'+mktWin+' dias</b> corridos. '+
+      'Verde = alta no período, vermelho = queda.';
+  }
+
+  document.querySelectorAll("#mktChips .chip").forEach(function(c){
+    c.addEventListener("click",function(){
+      var r=c.getAttribute("data-mf");
+      mktVis[r]=!mktVis[r];
+      c.classList.toggle("on",mktVis[r]);
+      renderMkt();
+    });
+  });
+  document.getElementById("mktWindow").addEventListener("change",function(e){
+    mktWin=parseInt(e.target.value,10);
+    renderMkt();
+  });
+
+  renderMkt();
 })();
 </script>
