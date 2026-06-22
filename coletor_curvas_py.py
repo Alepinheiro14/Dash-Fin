@@ -128,7 +128,7 @@ def coletar_brasil() -> dict | None:
     data_ref = df[col_base].max()
     snap = df[df[col_base] == data_ref].copy()
     snap["prazo"] = (snap[col_venc] - snap[col_base]).dt.days / 365.25
-    snap = snap[snap["prazo"] > 0].sort_values("prazo")
+    snap = snap[snap["prazo"] > 1].sort_values("prazo")  # exclui < 1 ano (instrumento de mercado monetário)
 
     curva = [[round(float(p), 2), round(float(t), 3)]
              for p, t in zip(snap["prazo"], snap[col_taxa])]

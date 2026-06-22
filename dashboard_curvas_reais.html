@@ -33,10 +33,6 @@
       <label>Comparar com</label>
       <select id="selCompare">
         <option value="none">— sem comparação —</option>
-        <option value="1m" selected>1 mês atrás</option>
-        <option value="3m">3 meses atrás</option>
-        <option value="6m">6 meses atrás</option>
-        <option value="1y">1 ano atrás</option>
       </select>
     </div>
     <div class="ctl toggles">
@@ -225,20 +221,11 @@
   var COLORS={BR:css("--br"),US:css("--us"),EU:css("--eu")};
 
   var allDates=Object.keys(DADOS.snapshots).sort();
-  var state={date:allDates[allDates.length-1], compare:"1m", visible:{BR:true,US:true,EU:true}};
+  var state={date:allDates[allDates.length-1], compare:"none", visible:{BR:true,US:true,EU:true}};
 
-  function monthsBack(iso,m){var d=new Date(iso+"T00:00:00");d.setMonth(d.getMonth()-m);return d;}
-  function nearestOnOrBefore(target){
-    var tt=target.getTime(),best=null;
-    allDates.forEach(function(d){var dt=new Date(d+"T00:00:00").getTime();
-      if(dt<=tt&&(best===null||dt>new Date(best+"T00:00:00").getTime()))best=d;});
-    return best;
-  }
   function compareDate(){
-    if(state.compare==="none")return null;
-    var m={"1m":1,"3m":3,"6m":6,"1y":12}[state.compare];
-    var nd=nearestOnOrBefore(monthsBack(state.date,m));
-    return (nd&&nd!==state.date)?nd:null;
+    if(!state.compare||state.compare==="none")return null;
+    return (DADOS.snapshots[state.compare]&&state.compare!==state.date)?state.compare:null;
   }
   function rateAt(curve,mat){
     if(!curve||!curve.length)return null;
@@ -250,6 +237,7 @@
     return null;
   }
   function fmtBp(x){return (x>=0?"+":"")+(x*100).toFixed(0)+" bp";}
+  function fmtMat(y){if(y<1)return Math.round(y*12)+"m";return Math.round(y)+"a";}
   function fmtDate(iso){var p=iso.split("-");var mm=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
     return p[2]+"/"+mm[+p[1]-1]+"/"+p[0];}
 
@@ -281,7 +269,7 @@
       var val=b.lo+(b.hi-b.lo)*i/4, y=Y(val);
       svg.appendChild(el("line",{x1:M.l,y1:y,x2:W-M.r,y2:y,stroke:css("--grid"),"stroke-width":1}));
       var t=el("text",{x:M.l-6,y:y+3.5,"text-anchor":"end",fill:css("--muted"),"font-size":10});
-      t.textContent=val.toFixed(2)+"%"; svg.appendChild(t);
+      t.textContent=val.toFixed(1)+"%"; svg.appendChild(t);
     }
     var xt=[0]; var step=b.maxMat<=10?2:(b.maxMat<=20?5:10);
     for(var v=step; v<=b.maxMat; v+=step) xt.push(v);
@@ -300,7 +288,7 @@
         var c=el("circle",{cx:cx,cy:cy,r:3.6,fill:css("--bg"),stroke:COLORS[region],"stroke-width":2,style:"cursor:pointer"});
         c.addEventListener("mouseenter",function(ev){
           var cr=snapCmp?rateAt(snapCmp[region],p[0]):null;
-          var html="<b>"+NAMES[region]+"</b><br>"+p[0]+"a: "+p[1].toFixed(2)+"%";
+          var html="<b>"+NAMES[region]+"</b><br>"+fmtMat(p[0])+": "+p[1].toFixed(2)+"%";
           if(cr!=null){var dl=p[1]-cr,cls=dl>0.001?"up":dl<-0.001?"down":"flat";
             html+=' <span class="delta '+cls+'">'+fmtBp(dl)+"</span>";}
           tip.innerHTML=html;
@@ -337,9 +325,9 @@
     var slope=(r10!=null)?(r10-r2):null;
     function dl(mat,v){if(!cmpc)return null;var c=rateAt(cmpc,mat);return c!=null?v-c:null;}
     var h="";
-    h+=statHtml(short[0]+"a", short[1], dl(short[0],short[1]));
+    h+=statHtml(fmtMat(short[0]), short[1], dl(short[0],short[1]));
     if(r10!=null) h+=statHtml("10a", r10, dl(10,r10));
-    h+=statHtml(long[0]+"a", long[1], dl(long[0],long[1]));
+    h+=statHtml(fmtMat(long[0]), long[1], dl(long[0],long[1]));
     if(slope!=null) h+='<div class="stat"><span class="sl">10−2a</span><span class="sv">'+
       ((slope>=0?"+":"")+(slope*100).toFixed(0)+"bp")+'</span></div>';
     return h;
@@ -373,13 +361,27 @@
   }
 
   /* ---------- 6) CONTROLES JUROS ---------- */
+  function fillCompareDates(){
+    var sel=document.getElementById("selCompare");
+    var cur=sel.value;
+    sel.innerHTML='<option value="none">— sem comparação —</option>';
+    allDates.slice().reverse().forEach(function(d){
+      if(d===state.date)return;
+      var o=document.createElement("option");o.value=d;o.textContent=fmtDate(d);
+      if(d===cur)o.selected=true;
+      sel.appendChild(o);
+    });
+    if(!sel.value||sel.value===state.date){sel.value="none";state.compare="none";}
+  }
   (function fillDates(){
     var sel=document.getElementById("selDate"); sel.innerHTML="";
     allDates.slice().reverse().forEach(function(d){
       var o=document.createElement("option");o.value=d;o.textContent=fmtDate(d);
       if(d===state.date)o.selected=true;sel.appendChild(o);});
+    fillCompareDates();
   })();
-  document.getElementById("selDate").addEventListener("change",function(e){state.date=e.target.value;render();});
+  document.getElementById("selDate").addEventListener("change",function(e){
+    state.date=e.target.value;fillCompareDates();render();});
   document.getElementById("selCompare").addEventListener("change",function(e){state.compare=e.target.value;render();});
   document.querySelectorAll(".chip[data-r]").forEach(function(c){
     c.addEventListener("click",function(){var r=c.getAttribute("data-r");
